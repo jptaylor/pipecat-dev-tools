@@ -116,6 +116,8 @@ pub fn show(ui: &mut egui::Ui, sh: &Shared, now_ns: u64, turn_pulse: f32) {
     if !sh.events.is_empty() {
         ui.add_space(8.0);
         super::event_list(ui, sh, 150.0);
+        ui.add_space(8.0);
+        super::event_timing(ui, sh, 170.0);
     }
 
     ui.add_space(12.0);

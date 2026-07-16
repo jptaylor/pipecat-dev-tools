@@ -136,6 +136,12 @@ pub struct Config {
     pub vad_tint: bool,
     /// Per-category visibility of RTVI events (markers + event list).
     pub event_filter: EventFilterConfig,
+    /// Manual correction added to every bridge event timestamp before
+    /// display and analysis (markers, event metrics, turn deltas, exports).
+    /// Websocket events land late; a negative value pulls them back onto the
+    /// audio blocks. 0 keeps raw arrival times — the transport delay itself
+    /// is often what's being measured.
+    pub rtvi_offset_ms: f64,
     /// Record per-lane WAV files during sessions.
     pub record_wav: bool,
     /// Where session folders are created. None = ~/Documents/PipecatAudioMetrics.
@@ -159,6 +165,7 @@ impl Default for Config {
             bridge: BridgeConfig::default(),
             vad_tint: true,
             event_filter: EventFilterConfig::default(),
+            rtvi_offset_ms: 0.0,
             record_wav: false,
             export_dir: None,
         }

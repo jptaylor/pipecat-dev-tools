@@ -281,6 +281,21 @@ pub fn show(
                         out.restart_bridge = true;
                     }
                     ui.end_row();
+                    ui.label("RTVI event offset");
+                    ui.add(
+                        egui::DragValue::new(&mut cfg.rtvi_offset_ms)
+                            .range(-2000.0..=2000.0)
+                            .speed(1.0)
+                            .suffix(" ms"),
+                    )
+                    .on_hover_text(
+                        "Added to every bridge event timestamp — markers, event \
+                         timing metrics, turn deltas, and exports. Websocket \
+                         events land late; a negative value pulls them back onto \
+                         the audio blocks. Keep 0 to measure the raw transport \
+                         delay itself. Applies retroactively to the whole session.",
+                    );
+                    ui.end_row();
                 });
             ui.separator();
             ui.label(

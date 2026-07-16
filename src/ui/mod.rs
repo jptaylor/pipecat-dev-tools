@@ -216,7 +216,7 @@ pub fn event_list(ui: &mut egui::Ui, sh: &crate::session::Shared, max_height: f3
                 let cat = categorize(&e.name);
                 ui.horizontal(|ui| {
                     ui.label(
-                        RichText::new(fmt_clock(sh.rel_ms(e.t_ns), true))
+                        RichText::new(fmt_clock(sh.rel_ms(sh.event_ns(e)), true))
                             .monospace()
                             .weak()
                             .size(10.5),
@@ -228,6 +228,128 @@ pub fn event_list(ui: &mut egui::Ui, sh: &crate::session::Shared, max_height: f3
                     )
                     .on_hover_text(format!("source: {}", e.source));
                 });
+            }
+        });
+}
+
+/// Per-event-type timing vs audio ground truth: for each RTVI event name,
+/// distribution stats of the delta from the previous audio block edge to the
+/// event — the same measurement the timeline hover shows, RTVI offset
+/// included. Each name expands to its per-occurrence deltas, so drift across
+/// turns is visible.
+pub fn event_timing(ui: &mut egui::Ui, sh: &crate::session::Shared, max_height: f32) {
+    use crate::analysis::{stats, turns};
+    use crate::audio::LANE_MIC;
+    use crate::bridge::protocol::categorize;
+    use egui::RichText;
+
+    let groups = turns::event_timings(sh);
+    if groups.is_empty() {
+        return;
+    }
+    ui.horizontal(|ui| {
+        ui.label(RichText::new("Event timing").strong());
+        ui.label(
+            RichText::new("Δ to previous audio edge")
+                .weak()
+                .size(10.5),
+        )
+        .on_hover_text(
+            "For each event type: time from the nearest preceding audio block \
+             edge (either lane) to the event, RTVI offset applied. Expand a \
+             name to follow the delta occurrence by occurrence.",
+        );
+        if sh.cfg.rtvi_offset_ms != 0.0 {
+            ui.label(
+                RichText::new(format!("offset {:+.0} ms", sh.cfg.rtvi_offset_ms))
+                    .size(10.5)
+                    .color(WARN_AMBER),
+            )
+            .on_hover_text("Manual RTVI event offset is active (Advanced ▾)");
+        }
+    });
+    ui.add_space(2.0);
+    egui::ScrollArea::vertical()
+        .id_salt("event-timing")
+        .max_height(max_height)
+        .auto_shrink([false, true])
+        .show(ui, |ui| {
+            ui.spacing_mut().item_spacing.y = 1.0;
+            for (name, occs) in &groups {
+                let color = category_color(categorize(name)).gamma_multiply(0.95);
+                let deltas: Vec<f64> = occs
+                    .iter()
+                    .filter_map(|o| o.edge.map(|e| e.delta_ms))
+                    .collect();
+                let s = stats::summarize(&deltas);
+                let header = match deltas.last() {
+                    Some(last) => format!(
+                        "{name}  ·  n {}  ·  last {last:.0}  ·  p50 {:.0} ms",
+                        s.count, s.p50
+                    ),
+                    None => format!("{name}  ·  n {}  ·  no audio reference", occs.len()),
+                };
+                egui::CollapsingHeader::new(RichText::new(header).size(11.0).color(color))
+                    .id_salt(name)
+                    .show(ui, |ui| {
+                        if s.count >= 2 {
+                            ui.label(
+                                RichText::new(format!(
+                                    "mean {:.0} · min {:.0} · max {:.0} · σ {:.0} ms",
+                                    s.mean, s.min, s.max, s.stdev
+                                ))
+                                .monospace()
+                                .weak()
+                                .size(10.5),
+                            );
+                        }
+                        egui::Grid::new(format!("event-timing-{name}"))
+                            .num_columns(4)
+                            .striped(true)
+                            .spacing([10.0, 2.0])
+                            .show(ui, |ui| {
+                                for h in ["#", "t", "Δ", "after"] {
+                                    ui.label(RichText::new(h).weak().size(10.0));
+                                }
+                                ui.end_row();
+                                for (i, o) in occs.iter().enumerate() {
+                                    ui.label(
+                                        RichText::new(format!("{}", i + 1))
+                                            .monospace()
+                                            .size(10.5),
+                                    );
+                                    ui.label(
+                                        RichText::new(fmt_clock(sh.rel_ms(o.t_ns), true))
+                                            .monospace()
+                                            .weak()
+                                            .size(10.5),
+                                    );
+                                    match o.edge {
+                                        Some(e) => {
+                                            ui.label(
+                                                RichText::new(format!("{:.0} ms", e.delta_ms))
+                                                    .monospace()
+                                                    .size(10.5),
+                                            );
+                                            ui.label(
+                                                RichText::new(format!(
+                                                    "{} {}",
+                                                    if e.lane == LANE_MIC { "mic" } else { "sys" },
+                                                    if e.is_end { "end" } else { "start" },
+                                                ))
+                                                .weak()
+                                                .size(10.5),
+                                            );
+                                        }
+                                        None => {
+                                            ui.label(RichText::new("—").weak());
+                                            ui.label("");
+                                        }
+                                    }
+                                    ui.end_row();
+                                }
+                            });
+                    });
             }
         });
 }

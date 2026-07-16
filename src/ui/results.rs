@@ -110,6 +110,8 @@ pub fn show(ui: &mut egui::Ui, sh: &Shared, now_ns: u64) -> ResultsOutput {
         ui.add_space(10.0);
         ui.separator();
         super::event_list(ui, sh, 150.0);
+        ui.add_space(8.0);
+        super::event_timing(ui, sh, 200.0);
     }
 
     ui.add_space(10.0);
@@ -139,7 +141,7 @@ pub fn show(ui: &mut egui::Ui, sh: &Shared, now_ns: u64) -> ResultsOutput {
                     ui.end_row();
 
                     for t in &sh.turns {
-                        let deltas = turns::rtvi_deltas(t, &sh.events);
+                        let deltas = turns::rtvi_deltas(t, &sh.events, sh.cfg.rtvi_offset_ms);
                         let clicked = ui
                             .selectable_label(false, RichText::new(format!("{}", t.index + 1)).monospace())
                             .clicked();

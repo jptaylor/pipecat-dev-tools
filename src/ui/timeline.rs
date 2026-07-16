@@ -11,7 +11,7 @@ use crate::session::{Phase, Shared};
 use egui::{pos2, vec2, Align2, Color32, FontId, Rect, Sense, Stroke};
 
 const RULER_H: f32 = 22.0;
-const LANE_GAP: f32 = 34.0; // room for gap annotations + interruption row
+const LANE_GAP: f32 = 56.0; // two rows: turn timings + interruptions, RTVI event measurements
 const BLOCK_PAD: f32 = 4.0;
 
 pub fn show(ui: &mut egui::Ui, sh: &Shared, view: &mut ViewState, effects: &Effects, now_ns: u64) {
@@ -214,7 +214,11 @@ pub fn show(ui: &mut egui::Ui, sh: &Shared, view: &mut ViewState, effects: &Effe
     let pointer = response.hover_pos();
 
     // ---- latency gap annotations between the lanes ----
-    let gap_y = lane_rects[0].bottom() + LANE_GAP / 2.0;
+    // Upper row: turn timings + interruptions. Lower row: RTVI event
+    // measurements, so their labels never collide with the turn ones.
+    let gap_top = lane_rects[0].bottom();
+    let gap_y = gap_top + LANE_GAP * 0.3;
+    let event_gap_y = gap_top + LANE_GAP * 0.78;
     for t in &sh.turns {
         let (Some(user_end), Some(latency)) = (t.user_end_ns, t.latency_ms) else {
             continue;
@@ -277,7 +281,8 @@ pub fn show(ui: &mut egui::Ui, sh: &Shared, view: &mut ViewState, effects: &Effe
             egui::StrokeKind::Inside,
         );
         if let Some(stop) = itr.stop_ms {
-            let register = turns::interruption_register_ms(&sh.events, itr.mic_open_ns);
+            let register =
+                turns::interruption_register_ms(&sh.events, itr.mic_open_ns, sh.cfg.rtvi_offset_ms);
             let label = match register {
                 Some(r) if block.width() >= 150.0 => {
                     Some(format!("reg {r:.0} · stop {stop:.0} ms"))
@@ -356,7 +361,7 @@ pub fn show(ui: &mut egui::Ui, sh: &Shared, view: &mut ViewState, effects: &Effe
         if !sh.cfg.event_filter.enabled(categorize(&e.name)) {
             continue;
         }
-        let x = x_of(sh.rel_ms(e.t_ns));
+        let x = x_of(sh.rel_ms(sh.event_ns(e)));
         if x < rect.left() || x > rect.right() {
             continue;
         }
@@ -372,31 +377,35 @@ pub fn show(ui: &mut egui::Ui, sh: &Shared, view: &mut ViewState, effects: &Effe
     }
     if let (Some((_, idx)), Some(p)) = (hover_event, pointer) {
         let e = &sh.events[idx];
+        let e_ns = sh.event_ns(e);
         let mut lines = vec![
             e.name.clone(),
-            format!("t = {}", fmt_clock(sh.rel_ms(e.t_ns), true)),
+            format!("t = {}", fmt_clock(sh.rel_ms(e_ns), true)),
             format!("source: {}", e.source),
         ];
+        if sh.cfg.rtvi_offset_ms != 0.0 {
+            lines.push(format!("offset {:+.0} ms applied", sh.cfg.rtvi_offset_ms));
+        }
         // Latency from the previous audio block edge to this event: drawn
-        // like the turn gap markers, in the row between the lanes.
-        if let Some((edge_ns, lane, is_end)) = prev_audio_edge(sh, e.t_ns) {
-            let delta_ms = e.t_ns.saturating_sub(edge_ns) as f64 / 1e6;
+        // like the turn gap markers, in the events row between the lanes.
+        if let Some((edge_ns, lane, is_end)) = turns::prev_audio_edge(sh, e_ns) {
+            let delta_ms = e_ns.saturating_sub(edge_ns) as f64 / 1e6;
             let color = category_color(categorize(&e.name));
             let x1 = x_of(sh.rel_ms(edge_ns));
-            let x2 = x_of(sh.rel_ms(e.t_ns));
+            let x2 = x_of(sh.rel_ms(e_ns));
             if x2 - x1 >= 2.0 {
                 painter.line_segment(
-                    [pos2(x1 + 1.0, gap_y), pos2(x2 - 1.0, gap_y)],
+                    [pos2(x1 + 1.0, event_gap_y), pos2(x2 - 1.0, event_gap_y)],
                     Stroke::new(1.2, color),
                 );
                 for x in [x1 + 1.0, x2 - 1.0] {
                     painter.line_segment(
-                        [pos2(x, gap_y - 4.0), pos2(x, gap_y + 4.0)],
+                        [pos2(x, event_gap_y - 4.0), pos2(x, event_gap_y + 4.0)],
                         Stroke::new(1.2, color),
                     );
                 }
                 painter.text(
-                    pos2((x1 + x2) / 2.0, gap_y - 6.0),
+                    pos2((x1 + x2) / 2.0, event_gap_y - 6.0),
                     Align2::CENTER_BOTTOM,
                     format!("{delta_ms:.0} ms"),
                     FontId::monospace(10.5),
@@ -412,7 +421,8 @@ pub fn show(ui: &mut egui::Ui, sh: &Shared, view: &mut ViewState, effects: &Effe
         draw_tooltip(&painter, p, rect, dark, &lines);
     } else if let (Some(i), Some(p)) = (itr_hover, pointer) {
         let itr = &sh.interruptions[i];
-        let register = turns::interruption_register_ms(&sh.events, itr.mic_open_ns);
+        let register =
+            turns::interruption_register_ms(&sh.events, itr.mic_open_ns, sh.cfg.rtvi_offset_ms);
         draw_tooltip(
             &painter,
             p,
@@ -466,28 +476,6 @@ pub fn show(ui: &mut egui::Ui, sh: &Shared, view: &mut ViewState, effects: &Effe
             },
         );
     }
-}
-
-/// Latest audio block edge (start or end, either lane) at or before `t_ns`:
-/// the "previous audio block" a hovered RTVI event is measured against.
-fn prev_audio_edge(sh: &Shared, t_ns: u64) -> Option<(u64, usize, bool)> {
-    let mut best: Option<(u64, usize, bool)> = None;
-    for lane in [LANE_MIC, LANE_SYS] {
-        let state = &sh.lanes[lane];
-        for b in &state.blocks {
-            for (edge, is_end) in [(b.start_ns, false), (b.end_ns, true)] {
-                if edge <= t_ns && best.map(|(t, _, _)| edge > t).unwrap_or(true) {
-                    best = Some((edge, lane, is_end));
-                }
-            }
-        }
-        if let Some(open) = state.open_start_ns {
-            if open <= t_ns && best.map(|(t, _, _)| open > t).unwrap_or(true) {
-                best = Some((open, lane, false));
-            }
-        }
-    }
-    best
 }
 
 #[allow(clippy::too_many_arguments)]

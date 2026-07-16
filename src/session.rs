@@ -31,6 +31,19 @@ pub struct BridgeEvent {
     pub meta: serde_json::Value,
 }
 
+impl BridgeEvent {
+    /// Arrival timestamp shifted by `offset_ms` (negative = earlier),
+    /// saturating at the clock origin.
+    pub fn t_with_offset(&self, offset_ms: f64) -> u64 {
+        let off = (offset_ms * 1e6).round() as i64;
+        if off >= 0 {
+            self.t_ns.saturating_add(off as u64)
+        } else {
+            self.t_ns.saturating_sub(off.unsigned_abs())
+        }
+    }
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct BridgeStatus {
     pub running: bool,
@@ -159,6 +172,12 @@ impl Shared {
         for lane in &mut self.lanes {
             lane.reset_session();
         }
+    }
+
+    /// Bridge event timestamp with the configured RTVI offset applied.
+    /// All display and analysis of event times goes through this.
+    pub fn event_ns(&self, e: &BridgeEvent) -> u64 {
+        e.t_with_offset(self.cfg.rtvi_offset_ms)
     }
 
     /// Session-relative ms for a timestamp.

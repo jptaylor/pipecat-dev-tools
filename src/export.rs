@@ -22,7 +22,7 @@ pub fn session_json(sh: &Shared, now_ns: u64) -> serde_json::Value {
         .turns
         .iter()
         .map(|t| {
-            let deltas = turns::rtvi_deltas(t, &sh.events);
+            let deltas = turns::rtvi_deltas(t, &sh.events, sh.cfg.rtvi_offset_ms);
             json!({
                 "index": t.index,
                 "user_start_ms": t.user_start_ns.map(|v| sh.rel_ms(v)),
@@ -53,6 +53,8 @@ pub fn session_json(sh: &Shared, now_ns: u64) -> serde_json::Value {
             "merge_gap_ms": sh.cfg.merge_gap_ms,
             "echo_gate": sh.cfg.echo_gate,
             "input_device": sh.cfg.input_device,
+            // Applied to rtvi delta fields below; rtvi_events t_ms stays raw.
+            "rtvi_offset_ms": sh.cfg.rtvi_offset_ms,
         },
         "devices": {
             "input": sh.devices.input,
@@ -68,7 +70,7 @@ pub fn session_json(sh: &Shared, now_ns: u64) -> serde_json::Value {
             "mic_open_ms": sh.rel_ms(i.mic_open_ns),
             "sys_stop_ms": i.sys_stop_ns.map(|v| sh.rel_ms(v)),
             "stop_ms": i.stop_ms,
-            "register_ms": turns::interruption_register_ms(&sh.events, i.mic_open_ns),
+            "register_ms": turns::interruption_register_ms(&sh.events, i.mic_open_ns, sh.cfg.rtvi_offset_ms),
         })).collect::<Vec<_>>(),
         "mic_blocks": sh.lanes[LANE_MIC].blocks.iter().map(|b| block_json(sh, b)).collect::<Vec<_>>(),
         // VAD-classified speech intervals (visual layer; blocks drive metrics)
@@ -112,7 +114,7 @@ pub fn write_csv(sh: &Shared, dir: &Path) -> Result<PathBuf> {
     let rig = sh.devices.rig_latency_ms();
     let fmt = |v: Option<f64>| v.map(|x| format!("{x:.1}")).unwrap_or_default();
     for t in &sh.turns {
-        let deltas = turns::rtvi_deltas(t, &sh.events);
+        let deltas = turns::rtvi_deltas(t, &sh.events, sh.cfg.rtvi_offset_ms);
         w.write_record([
             t.index.to_string(),
             fmt(t.user_start_ns.map(|v| sh.rel_ms(v))),

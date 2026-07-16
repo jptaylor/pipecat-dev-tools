@@ -5,7 +5,7 @@
 
 use super::segmenter::SegEvent;
 use crate::audio::{LANE_MIC, LANE_SYS};
-use crate::session::BridgeEvent;
+use crate::session::{BridgeEvent, Shared};
 use serde::Serialize;
 
 #[derive(Debug, Clone, Copy, Default, Serialize)]
@@ -449,12 +449,17 @@ pub struct RtviDeltas {
 
 const RTVI_MATCH_WINDOW_MS: f64 = 2000.0;
 
-fn nearest_event_delta(events: &[BridgeEvent], names: &[&str], t_ns: u64) -> Option<f64> {
+fn nearest_event_delta(
+    events: &[BridgeEvent],
+    names: &[&str],
+    t_ns: u64,
+    offset_ms: f64,
+) -> Option<f64> {
     let t_ms = t_ns as f64 / 1e6;
     events
         .iter()
         .filter(|e| names.contains(&e.name.as_str()))
-        .map(|e| e.t_ns as f64 / 1e6 - t_ms)
+        .map(|e| e.t_with_offset(offset_ms) as f64 / 1e6 - t_ms)
         .filter(|d| d.abs() <= RTVI_MATCH_WINDOW_MS)
         .min_by(|a, b| a.abs().partial_cmp(&b.abs()).unwrap())
 }
@@ -462,21 +467,90 @@ fn nearest_event_delta(events: &[BridgeEvent], names: &[&str], t_ns: u64) -> Opt
 /// How long the framework took to register the interrupting mic audio:
 /// nearest `user_started_speaking` event relative to the mic onset. None when
 /// no bridge event matches (RTVI optional).
-pub fn interruption_register_ms(events: &[BridgeEvent], mic_open_ns: u64) -> Option<f64> {
-    nearest_event_delta(events, &["user_started_speaking"], mic_open_ns)
+pub fn interruption_register_ms(
+    events: &[BridgeEvent],
+    mic_open_ns: u64,
+    offset_ms: f64,
+) -> Option<f64> {
+    nearest_event_delta(events, &["user_started_speaking"], mic_open_ns, offset_ms)
 }
 
-pub fn rtvi_deltas(turn: &TurnRecord, events: &[BridgeEvent]) -> RtviDeltas {
+pub fn rtvi_deltas(turn: &TurnRecord, events: &[BridgeEvent], offset_ms: f64) -> RtviDeltas {
     let vad_stop_delta_ms = turn
         .user_end_ns
-        .and_then(|end| nearest_event_delta(events, &["user_stopped_speaking"], end));
+        .and_then(|end| nearest_event_delta(events, &["user_stopped_speaking"], end, offset_ms));
     // Positive = audio came out after the framework thought the bot started.
     let bot_start_delta_ms =
-        nearest_event_delta(events, &["bot_started_speaking"], turn.bot_onset_ns).map(|d| -d);
+        nearest_event_delta(events, &["bot_started_speaking"], turn.bot_onset_ns, offset_ms)
+            .map(|d| -d);
     RtviDeltas {
         vad_stop_delta_ms,
         bot_start_delta_ms,
     }
+}
+
+/// Latest audio block edge (start or end, either lane) at or before `t_ns`:
+/// the "previous audio block" an RTVI event is measured against.
+pub fn prev_audio_edge(sh: &Shared, t_ns: u64) -> Option<(u64, usize, bool)> {
+    let mut best: Option<(u64, usize, bool)> = None;
+    for lane in [LANE_MIC, LANE_SYS] {
+        let state = &sh.lanes[lane];
+        for b in &state.blocks {
+            for (edge, is_end) in [(b.start_ns, false), (b.end_ns, true)] {
+                if edge <= t_ns && best.map(|(t, _, _)| edge > t).unwrap_or(true) {
+                    best = Some((edge, lane, is_end));
+                }
+            }
+        }
+        if let Some(open) = state.open_start_ns {
+            if open <= t_ns && best.map(|(t, _, _)| open > t).unwrap_or(true) {
+                best = Some((open, lane, false));
+            }
+        }
+    }
+    best
+}
+
+/// The audio edge one event occurrence was measured against.
+#[derive(Debug, Clone, Copy)]
+pub struct EdgeRef {
+    /// Previous audio block edge → event, offset applied.
+    pub delta_ms: f64,
+    pub lane: usize,
+    pub is_end: bool,
+}
+
+/// One RTVI event occurrence timed against audio ground truth. `edge` is
+/// None when no audio precedes the (offset-adjusted) event.
+#[derive(Debug, Clone, Copy)]
+pub struct EventOccurrence {
+    /// Offset-adjusted event time.
+    pub t_ns: u64,
+    pub edge: Option<EdgeRef>,
+}
+
+/// Event-to-previous-audio-edge timing for every received event — the same
+/// measurement the timeline hover shows — grouped by event name in order of
+/// first appearance. Honors the category filter and the RTVI offset.
+pub fn event_timings(sh: &Shared) -> Vec<(String, Vec<EventOccurrence>)> {
+    let mut groups: Vec<(String, Vec<EventOccurrence>)> = Vec::new();
+    for e in &sh.events {
+        if !sh.cfg.event_filter.enabled(crate::bridge::protocol::categorize(&e.name)) {
+            continue;
+        }
+        let t_ns = sh.event_ns(e);
+        let edge = prev_audio_edge(sh, t_ns).map(|(edge_ns, lane, is_end)| EdgeRef {
+            delta_ms: t_ns.saturating_sub(edge_ns) as f64 / 1e6,
+            lane,
+            is_end,
+        });
+        let occ = EventOccurrence { t_ns, edge };
+        match groups.iter_mut().find(|(n, _)| n == &e.name) {
+            Some((_, v)) => v.push(occ),
+            None => groups.push((e.name.clone(), vec![occ])),
+        }
+    }
+    groups
 }
 
 #[cfg(test)]
@@ -711,6 +785,56 @@ mod tests {
         assert_eq!(itr[0].stop_ms, Some(400.0));
         assert!(turns[1].flags.barge_in);
         assert_eq!(turns[1].latency_ms, Some(700.0));
+    }
+
+    #[test]
+    fn rtvi_deltas_respect_offset() {
+        let events = vec![BridgeEvent {
+            t_ns: 3100 * MS,
+            name: "user_stopped_speaking".into(),
+            source: "test".into(),
+            meta: serde_json::Value::Null,
+        }];
+        let turn = TurnRecord {
+            index: 0,
+            user_end_ns: Some(3000 * MS),
+            user_start_ns: Some(1000 * MS),
+            bot_onset_ns: 3800 * MS,
+            bot_group_end_ns: None,
+            latency_ms: Some(800.0),
+            user_response_ms: None,
+            provisional: false,
+            flags: TurnFlags::default(),
+        };
+        assert_eq!(rtvi_deltas(&turn, &events, 0.0).vad_stop_delta_ms, Some(100.0));
+        assert_eq!(rtvi_deltas(&turn, &events, -60.0).vad_stop_delta_ms, Some(40.0));
+    }
+
+    #[test]
+    fn event_timings_measure_prev_edge_with_offset() {
+        let mut sh = Shared::new(crate::config::Config::default());
+        sh.lanes[LANE_MIC].blocks.push(crate::session::Block {
+            start_ns: 1000 * MS,
+            end_ns: 2000 * MS,
+        });
+        sh.events.push(BridgeEvent {
+            t_ns: 2150 * MS,
+            name: "user_stopped_speaking".into(),
+            source: "test".into(),
+            meta: serde_json::Value::Null,
+        });
+
+        let groups = event_timings(&sh);
+        assert_eq!(groups.len(), 1);
+        assert_eq!(groups[0].0, "user_stopped_speaking");
+        let edge = groups[0].1[0].edge.unwrap();
+        assert_eq!(edge.delta_ms, 150.0);
+        assert_eq!(edge.lane, LANE_MIC);
+        assert!(edge.is_end);
+
+        sh.cfg.rtvi_offset_ms = -100.0;
+        let groups = event_timings(&sh);
+        assert_eq!(groups[0].1[0].edge.unwrap().delta_ms, 50.0);
     }
 
     #[test]
