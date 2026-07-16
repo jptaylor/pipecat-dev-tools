@@ -1,0 +1,67 @@
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  macos:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin, x86_64-apple-darwin
+      - name: Build universal .app bundle
+        run: ./scripts/bundle_macos.sh --universal
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos
+          path: dist/pipecat-audio-metrics-macos.zip
+      - name: Attach to release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/pipecat-audio-metrics-macos.zip
+
+  linux:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: System deps (ALSA + wayland/x11 for eframe)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libasound2-dev pkg-config libxkbcommon-dev \
+            libwayland-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev \
+            libgl1-mesa-dev
+      - name: Build
+        run: cargo build --release
+      - name: Package
+        run: |
+          mkdir -p dist/pipecat-audio-metrics-linux-x86_64
+          cp target/release/pipecat-audio-metrics dist/pipecat-audio-metrics-linux-x86_64/
+          cp -r adapters README.md dist/pipecat-audio-metrics-linux-x86_64/
+          tar -C dist -czf dist/pipecat-audio-metrics-linux-x86_64.tar.gz pipecat-audio-metrics-linux-x86_64
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux
+          path: dist/pipecat-audio-metrics-linux-x86_64.tar.gz
+      - name: Attach to release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/pipecat-audio-metrics-linux-x86_64.tar.gz
+
+  test:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo test

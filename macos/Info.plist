@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleName</key>
+    <string>Pipecat Audio Metrics</string>
+    <key>CFBundleDisplayName</key>
+    <string>Pipecat Audio Metrics</string>
+    <key>CFBundleIdentifier</key>
+    <string>co.daily.pipecat-audio-metrics</string>
+    <key>CFBundleExecutable</key>
+    <string>pipecat-audio-metrics</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleShortVersionString</key>
+    <string>0.1.0</string>
+    <key>CFBundleVersion</key>
+    <string>0.1.0</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>14.4</string>
+    <key>NSHighResolutionCapable</key>
+    <true/>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>Pipecat Audio Metrics captures the microphone to measure when you stop speaking. Audio is analyzed locally and never uploaded.</string>
+    <key>NSAudioCaptureUsageDescription</key>
+    <string>Pipecat Audio Metrics records system audio to measure when the voice agent starts speaking. Audio is analyzed locally and never uploaded.</string>
+</dict>
+</plist>
