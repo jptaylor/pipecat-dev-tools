@@ -263,19 +263,8 @@ fn run(shared: SharedState, inputs: SharedInputs, stop: Arc<AtomicBool>) {
             let mut tick_events: Vec<(usize, u64, SegEvent)> = Vec::new();
             for lane in [LANE_SYS, LANE_MIC] {
                 let mut evs = Vec::new();
-                let cfg = if lane == LANE_MIC {
-                    sh.cfg.mic_segmenter.clone()
-                } else {
-                    sh.cfg.sys_segmenter.clone()
-                };
-                procs[lane].segmenter.finalize(&cfg, &mut evs);
-                for e in evs {
-                    let t = match e {
-                        SegEvent::Open { t_ns } | SegEvent::Close { t_ns } => t_ns,
-                        SegEvent::Cancel => now,
-                    };
-                    tick_events.push((lane, t, e));
-                }
+                procs[lane].segmenter.finalize(seg_cfg(&sh.cfg, lane), &mut evs);
+                queue_events(&mut tick_events, lane, evs, now);
                 procs[lane].wav_pending = false;
                 procs[lane].finalize_wav();
             }
@@ -294,23 +283,20 @@ fn run(shared: SharedState, inputs: SharedInputs, stop: Arc<AtomicBool>) {
         for lane in [LANE_SYS, LANE_MIC] {
             let p = &mut procs[lane];
             if p.scratch.is_empty() {
-                // still refresh level decay
+                // No new samples this tick.
                 continue;
             }
             let samples = std::mem::take(&mut p.scratch);
             let sr = p.timemap.sample_rate();
 
-            let seg_cfg = if lane == LANE_MIC {
-                sh.cfg.mic_segmenter.clone()
-            } else {
-                sh.cfg.sys_segmenter.clone()
-            };
+            // Cloned because `sh` is mutably borrowed below.
+            let cfg = seg_cfg(&sh.cfg, lane).clone();
 
             // Detection path: optionally band-limit to speech frequencies.
             // Everything visual/recorded (bins, WAV) stays raw; only the
             // meter and the segmenter see the filtered signal, and both see
             // the SAME signal so the threshold ticks stay truthful.
-            if seg_cfg.speech_band && sr > 0.0 {
+            if cfg.speech_band && sr > 0.0 {
                 let rebuild = match &p.det_filter {
                     Some(f) => (f.sample_rate() - sr).abs() > 0.5,
                     None => true,
@@ -342,7 +328,6 @@ fn run(shared: SharedState, inputs: SharedInputs, stop: Arc<AtomicBool>) {
                 .sum::<f64>()
                 / (det.len() - start).max(1) as f64;
             sh.lanes[lane].level_db = (10.0 * (mean_sq + 1e-12).log10()) as f32;
-            sh.lanes[lane].sample_rate = sr;
             sh.lanes[lane].effective_threshold_db = p.segmenter.effective_threshold_db;
             if p.timemap.ready() {
                 sh.lanes[lane].last_sample_ns =
@@ -420,7 +405,6 @@ fn run(shared: SharedState, inputs: SharedInputs, stop: Arc<AtomicBool>) {
                 // Segmentation (on the detection signal). Runs while idle
                 // too, so the auto-threshold noise floor is already adapted
                 // when a session starts; idle events are discarded.
-                let cfg = seg_cfg.clone();
                 let gate_enabled = running && sh.cfg.echo_gate.enabled && lane == LANE_MIC;
                 let tail_ns = sh.cfg.echo_gate.tail_ms * 1_000_000;
                 let mut evs = Vec::new();
@@ -447,13 +431,9 @@ fn run(shared: SharedState, inputs: SharedInputs, stop: Arc<AtomicBool>) {
                         .process(det, base, sr, &cfg, &sample_ns, &gated, &mut evs);
                 }
                 if running {
-                    for e in evs {
-                        let t = match e {
-                            SegEvent::Open { t_ns } | SegEvent::Close { t_ns } => t_ns,
-                            SegEvent::Cancel => now,
-                        };
-                        if lane == LANE_SYS {
-                            match e {
+                    if lane == LANE_SYS {
+                        for e in &evs {
+                            match *e {
                                 SegEvent::Open { t_ns } => sys_open_since = Some(t_ns),
                                 SegEvent::Close { t_ns } => {
                                     let start = sys_open_since.take().unwrap_or(t_ns);
@@ -468,8 +448,8 @@ fn run(shared: SharedState, inputs: SharedInputs, stop: Arc<AtomicBool>) {
                                 }
                             }
                         }
-                        tick_events.push((lane, t, e));
                     }
+                    queue_events(&mut tick_events, lane, evs, now);
 
                     // Visual speech classification (mic lane only): Silero VAD
                     // tints speech vs other mic activity. Never touches block
@@ -531,16 +511,9 @@ fn run(shared: SharedState, inputs: SharedInputs, stop: Arc<AtomicBool>) {
                             tracker.note_discontinuity();
                             // Force-close any open sys block; timing across the
                             // device change is not trustworthy.
-                            let cfg = sh.cfg.sys_segmenter.clone();
                             let mut evs = Vec::new();
-                            procs[LANE_SYS].segmenter.finalize(&cfg, &mut evs);
-                            for e in evs {
-                                let t = match e {
-                                    SegEvent::Open { t_ns } | SegEvent::Close { t_ns } => t_ns,
-                                    SegEvent::Cancel => now,
-                                };
-                                tick_events.push((LANE_SYS, t, e));
-                            }
+                            procs[LANE_SYS].segmenter.finalize(&sh.cfg.sys_segmenter, &mut evs);
+                            queue_events(&mut tick_events, LANE_SYS, evs, now);
                             if let Some(s) = sys_open_since.take() {
                                 sys_intervals.push((s, now));
                             }
@@ -563,6 +536,83 @@ fn run(shared: SharedState, inputs: SharedInputs, stop: Arc<AtomicBool>) {
         if running {
             apply_events(&mut sh, &mut tracker, tick_events);
         }
+    }
+}
+
+/// Per-lane segmenter config (mic vs system).
+fn seg_cfg(cfg: &crate::config::Config, lane: usize) -> &crate::config::SegmenterConfig {
+    if lane == LANE_MIC {
+        &cfg.mic_segmenter
+    } else {
+        &cfg.sys_segmenter
+    }
+}
+
+/// Stamp segmentation events with their event time (Cancel carries none, so
+/// it gets `now_ns`) and queue them for `apply_events`.
+fn queue_events(
+    out: &mut Vec<(usize, u64, SegEvent)>,
+    lane: usize,
+    evs: Vec<SegEvent>,
+    now_ns: u64,
+) {
+    for e in evs {
+        let t = match e {
+            SegEvent::Open { t_ns } | SegEvent::Close { t_ns } => t_ns,
+            SegEvent::Cancel => now_ns,
+        };
+        out.push((lane, t, e));
+    }
+}
+
+/// Apply VAD speech events to the mic lane's visual speech intervals.
+fn apply_speech_events(lane: &mut crate::session::LaneState, events: Vec<vad::VadEvent>) {
+    for e in events {
+        match e {
+            vad::VadEvent::Open { t_ns } => lane.speech_open_ns = Some(t_ns),
+            vad::VadEvent::Close { t_ns } => {
+                if let Some(start_ns) = lane.speech_open_ns.take() {
+                    lane.speech.push(Block {
+                        start_ns,
+                        end_ns: t_ns,
+                    });
+                }
+            }
+            vad::VadEvent::Cancel => lane.speech_open_ns = None,
+        }
+    }
+}
+
+/// Apply segmentation events (sorted by time across lanes) to the shared
+/// block lists and the turn tracker.
+fn apply_events(
+    sh: &mut crate::session::Shared,
+    tracker: &mut TurnTracker,
+    mut events: Vec<(usize, u64, SegEvent)>,
+) {
+    if events.is_empty() {
+        return;
+    }
+    events.sort_by_key(|(_, t, _)| *t);
+    let merge_gap = sh.cfg.merge_gap_ms;
+    for (lane, _t, ev) in events {
+        match ev {
+            SegEvent::Open { t_ns } => {
+                sh.lanes[lane].open_start_ns = Some(t_ns);
+            }
+            SegEvent::Close { t_ns } => {
+                if let Some(start) = sh.lanes[lane].open_start_ns.take() {
+                    sh.lanes[lane].blocks.push(Block {
+                        start_ns: start,
+                        end_ns: t_ns,
+                    });
+                }
+            }
+            SegEvent::Cancel => {
+                sh.lanes[lane].open_start_ns = None;
+            }
+        }
+        tracker.on_event(lane, ev, merge_gap, &mut sh.turns, &mut sh.interruptions);
     }
 }
 
@@ -763,56 +813,5 @@ mod pipeline_tests {
         assert_eq!(sh.turns.len(), 1);
         let l = sh.turns[0].latency_ms.expect("latency");
         assert!((l - 700.0).abs() < 25.0, "latency {l}");
-    }
-}
-
-/// Apply VAD speech events to the mic lane's visual speech intervals.
-fn apply_speech_events(lane: &mut crate::session::LaneState, events: Vec<vad::VadEvent>) {
-    for e in events {
-        match e {
-            vad::VadEvent::Open { t_ns } => lane.speech_open_ns = Some(t_ns),
-            vad::VadEvent::Close { t_ns } => {
-                if let Some(start_ns) = lane.speech_open_ns.take() {
-                    lane.speech.push(Block {
-                        start_ns,
-                        end_ns: t_ns,
-                    });
-                }
-            }
-            vad::VadEvent::Cancel => lane.speech_open_ns = None,
-        }
-    }
-}
-
-/// Apply segmentation events (sorted by time across lanes) to the shared
-/// block lists and the turn tracker.
-fn apply_events(
-    sh: &mut crate::session::Shared,
-    tracker: &mut TurnTracker,
-    mut events: Vec<(usize, u64, SegEvent)>,
-) {
-    if events.is_empty() {
-        return;
-    }
-    events.sort_by_key(|(_, t, _)| *t);
-    let merge_gap = sh.cfg.merge_gap_ms;
-    for (lane, _t, ev) in events {
-        match ev {
-            SegEvent::Open { t_ns } => {
-                sh.lanes[lane].open_start_ns = Some(t_ns);
-            }
-            SegEvent::Close { t_ns } => {
-                if let Some(start) = sh.lanes[lane].open_start_ns.take() {
-                    sh.lanes[lane].blocks.push(Block {
-                        start_ns: start,
-                        end_ns: t_ns,
-                    });
-                }
-            }
-            SegEvent::Cancel => {
-                sh.lanes[lane].open_start_ns = None;
-            }
-        }
-        tracker.on_event(lane, ev, merge_gap, &mut sh.turns, &mut sh.interruptions);
     }
 }

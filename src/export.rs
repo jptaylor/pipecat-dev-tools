@@ -15,23 +15,6 @@ fn block_json(sh: &Shared, b: &crate::session::Block) -> serde_json::Value {
     })
 }
 
-fn device_json(d: &Option<crate::audio::DeviceInfo>) -> serde_json::Value {
-    match d {
-        None => serde_json::Value::Null,
-        Some(d) => json!({
-            "name": d.name,
-            "transport": d.transport,
-            "is_bluetooth": d.is_bluetooth,
-            "sample_rate": d.sample_rate,
-            "device_latency_ms": d.device_latency_ms,
-            "safety_offset_ms": d.safety_offset_ms,
-            "buffer_ms": d.buffer_ms,
-            "stream_latency_ms": d.stream_latency_ms,
-            "total_latency_ms": d.total_latency_ms,
-        }),
-    }
-}
-
 pub fn session_json(sh: &Shared, now_ns: u64) -> serde_json::Value {
     let latencies = sh.valid_latencies();
     let rig = sh.devices.rig_latency_ms();
@@ -65,25 +48,15 @@ pub fn session_json(sh: &Shared, now_ns: u64) -> serde_json::Value {
         "exported_at": chrono::Local::now().to_rfc3339(),
         "duration_ms": sh.session_duration_ms(now_ns),
         "config": {
-            "mic_segmenter": {
-                "threshold_db": sh.cfg.mic_segmenter.threshold_db,
-                "auto_threshold": sh.cfg.mic_segmenter.auto_threshold,
-                "hangover_ms": sh.cfg.mic_segmenter.hangover_ms,
-                "min_block_ms": sh.cfg.mic_segmenter.min_block_ms,
-            },
-            "sys_segmenter": {
-                "threshold_db": sh.cfg.sys_segmenter.threshold_db,
-                "auto_threshold": sh.cfg.sys_segmenter.auto_threshold,
-                "hangover_ms": sh.cfg.sys_segmenter.hangover_ms,
-                "min_block_ms": sh.cfg.sys_segmenter.min_block_ms,
-            },
+            "mic_segmenter": sh.cfg.mic_segmenter,
+            "sys_segmenter": sh.cfg.sys_segmenter,
             "merge_gap_ms": sh.cfg.merge_gap_ms,
-            "echo_gate": { "enabled": sh.cfg.echo_gate.enabled, "tail_ms": sh.cfg.echo_gate.tail_ms },
+            "echo_gate": sh.cfg.echo_gate,
             "input_device": sh.cfg.input_device,
         },
         "devices": {
-            "input": device_json(&sh.devices.input),
-            "output": device_json(&sh.devices.output),
+            "input": sh.devices.input,
+            "output": sh.devices.output,
             "rig_latency_ms": rig,
             "note": "raw latencies are tap-to-mic (pre-DAC to post-ADC); perceived ≈ raw + rig_latency_ms",
         },

@@ -6,7 +6,6 @@ use crate::analysis::turns::{InterruptionRecord, TurnRecord};
 use crate::audio::DeviceInfo;
 use crate::config::Config;
 use parking_lot::Mutex;
-use serde::Serialize;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -17,14 +16,14 @@ pub enum Phase {
     Stopped,
 }
 
-#[derive(Debug, Clone, Copy, Serialize)]
+#[derive(Debug, Clone, Copy)]
 pub struct Block {
     pub start_ns: u64,
     pub end_ns: u64,
 }
 
 /// An event received over the bridge WebSocket, stamped on arrival.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone)]
 pub struct BridgeEvent {
     pub t_ns: u64,
     pub name: String,
@@ -66,7 +65,6 @@ pub struct LaneState {
     pub speech_open_ns: Option<u64>,
     pub level_db: f32,
     pub effective_threshold_db: f32,
-    pub sample_rate: f64,
     pub dropped: u64,
     /// ns of the most recent processed sample (lane "now").
     pub last_sample_ns: u64,

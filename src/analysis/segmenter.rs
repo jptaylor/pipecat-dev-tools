@@ -33,7 +33,6 @@ pub struct Segmenter {
     first_above_in_window: Option<u64>,
     last_above_in_window: Option<u64>,
     noise_floor_db: f32,
-    pub current_level_db: f32,
     pub effective_threshold_db: f32,
 }
 
@@ -48,7 +47,6 @@ impl Segmenter {
             first_above_in_window: None,
             last_above_in_window: None,
             noise_floor_db: -70.0,
-            current_level_db: -90.0,
             effective_threshold_db: -45.0,
         }
     }
@@ -71,6 +69,7 @@ impl Segmenter {
     /// the stream; `sample_ns` maps absolute sample index → app-clock ns.
     /// `gated(t_ns)` returns true when activity at that time must be ignored
     /// (echo gate). Events are appended to `out`.
+    #[allow(clippy::too_many_arguments)]
     pub fn process(
         &mut self,
         samples: &[f32],
@@ -116,7 +115,6 @@ impl Segmenter {
     ) {
         let mean_sq = self.sum_sq / self.n_in_window.max(1) as f64;
         let rms_db = 10.0 * (mean_sq + 1e-12).log10() as f32;
-        self.current_level_db = rms_db;
 
         // Rolling noise-floor estimate: sink quickly toward quiet windows,
         // creep upward slowly so speech does not drag the floor up.
@@ -166,12 +164,7 @@ impl Segmenter {
                     }
                     let silence_ns = window_end_ns.saturating_sub(*last_above_ns);
                     if silence_ns >= cfg.hangover_ms * 1_000_000 {
-                        let duration_ns = last_above_ns.saturating_sub(*open_ns);
-                        if duration_ns >= cfg.min_block_ms * 1_000_000 {
-                            out.push(SegEvent::Close { t_ns: *last_above_ns });
-                        } else {
-                            out.push(SegEvent::Cancel);
-                        }
+                        out.push(close_or_cancel(*open_ns, *last_above_ns, cfg));
                         self.state = State::Idle;
                     }
                 }
@@ -192,16 +185,18 @@ impl Segmenter {
             last_above_ns,
         } = self.state
         {
-            let duration_ns = last_above_ns.saturating_sub(open_ns);
-            if duration_ns >= cfg.min_block_ms * 1_000_000 {
-                out.push(SegEvent::Close {
-                    t_ns: last_above_ns,
-                });
-            } else {
-                out.push(SegEvent::Cancel);
-            }
+            out.push(close_or_cancel(open_ns, last_above_ns, cfg));
         }
         self.state = State::Idle;
+    }
+}
+
+/// Close the block if it met min_block_ms, otherwise cancel it as a blip.
+fn close_or_cancel(open_ns: u64, last_above_ns: u64, cfg: &SegmenterConfig) -> SegEvent {
+    if last_above_ns.saturating_sub(open_ns) >= cfg.min_block_ms * 1_000_000 {
+        SegEvent::Close { t_ns: last_above_ns }
+    } else {
+        SegEvent::Cancel
     }
 }
 

@@ -189,7 +189,7 @@ impl App {
                 );
             } else {
                 ui.colored_label(
-                    egui::Color32::from_rgb(214, 72, 61),
+                    ui::ERR_RED,
                     egui::RichText::new(problems.join("  ·  ")).size(11.0),
                 );
             }

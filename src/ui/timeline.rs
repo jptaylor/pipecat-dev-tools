@@ -2,7 +2,7 @@
 //! bars, latency gap annotations between lanes, RTVI event markers, ruler,
 //! zoom/pan/follow.
 
-use super::{category_color, fmt_clock, lane_palette, latency_color, Effects, ViewState};
+use super::{category_color, fmt_clock, lane_palette, latency_color, Effects, ViewState, ERR_RED};
 use crate::analysis::bins::LaneBins;
 use crate::analysis::turns;
 use crate::audio::{LANE_MIC, LANE_SYS};
@@ -167,7 +167,7 @@ pub fn show(ui: &mut egui::Ui, sh: &Shared, view: &mut ViewState, effects: &Effe
                 painter.rect_filled(block_rect, 6.0, gray_fill.gamma_multiply(open_dim));
                 draw_bins(
                     &painter, block_rect, &lane_state.bins, start_ms, end_ms, view_start,
-                    view_end, ppm, &x_of, gray_bar,
+                    view_end, ppm, x_of, gray_bar,
                 );
                 // Speech tier: VAD-confirmed speech in lane color.
                 for &(s0, s1) in &speech_ranges {
@@ -185,14 +185,14 @@ pub fn show(ui: &mut egui::Ui, sh: &Shared, view: &mut ViewState, effects: &Effe
                     painter.rect_filled(speech_rect, 4.0, pal.fill.gamma_multiply(open_dim));
                     draw_bins(
                         &painter, speech_rect, &lane_state.bins, lo, hi, view_start,
-                        view_end, ppm, &x_of, pal.bar,
+                        view_end, ppm, x_of, pal.bar,
                     );
                 }
             } else {
                 painter.rect_filled(block_rect, 6.0, pal.fill.gamma_multiply(open_dim));
                 draw_bins(
                     &painter, block_rect, &lane_state.bins, start_ms, end_ms, view_start,
-                    view_end, ppm, &x_of, pal.bar,
+                    view_end, ppm, x_of, pal.bar,
                 );
             }
         }
@@ -306,7 +306,7 @@ pub fn show(ui: &mut egui::Ui, sh: &Shared, view: &mut ViewState, effects: &Effe
         if x < rect.left() || x > rect.right() {
             continue;
         }
-        let color = Color32::from_rgb(214, 72, 61);
+        let color = ERR_RED;
         draw_dashed_vline(&painter, x, lanes_top, rect.bottom() - 4.0, color, 2.0);
         painter.text(
             pos2(x, lanes_top - 1.0),
@@ -521,8 +521,7 @@ fn draw_bins(
     let i1 = ((hi / bin_ms) as usize + 1).min(data.len());
     let bar_w = (bin_ms as f32 * ppm * 0.55).clamp(1.0, 6.0);
     let amp = |v: f32| v.clamp(0.0, 1.0).sqrt();
-    for idx in i0..i1 {
-        let b = &data[idx];
+    for (idx, b) in data.iter().enumerate().take(i1).skip(i0) {
         if b.is_empty() {
             continue;
         }

@@ -43,7 +43,7 @@ impl TurnFlags {
     }
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone)]
 pub struct TurnRecord {
     pub index: usize,
     /// End of the user utterance that triggered this response.
@@ -66,7 +66,7 @@ pub struct TurnRecord {
 /// A barge-in and its outcome: mic audio started while bot audio was
 /// playing; the interruption "triggered" when system audio actually stopped.
 /// Measured from audio ground truth, like turns.
-#[derive(Debug, Clone, Copy, Serialize)]
+#[derive(Debug, Clone, Copy)]
 pub struct InterruptionRecord {
     /// Mic audio onset that barged in over bot audio.
     pub mic_open_ns: u64,
@@ -439,7 +439,7 @@ impl TurnTracker {
 }
 
 /// Deltas between framework-reported (RTVI) events and audio ground truth.
-#[derive(Debug, Clone, Copy, Default, Serialize)]
+#[derive(Debug, Clone, Copy, Default)]
 pub struct RtviDeltas {
     /// rtvi user_stopped_speaking − measured mic block end (VAD stop lag).
     pub vad_stop_delta_ms: Option<f64>,

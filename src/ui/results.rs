@@ -1,7 +1,7 @@
 //! Results panel shown after Stop: distribution stats, histogram, per-turn
 //! table (click a row to zoom the timeline), export buttons.
 
-use super::{fmt_clock, fmt_opt_ms, latency_color};
+use super::{fmt_clock, fmt_opt_ms, latency_color, WARN_AMBER};
 use crate::analysis::{stats, turns};
 use crate::session::Shared;
 use egui::{pos2, vec2, Align2, Color32, FontId, Rect, RichText, Sense, Stroke};
@@ -185,11 +185,7 @@ pub fn show(ui: &mut egui::Ui, sh: &Shared, now_ns: u64) -> ResultsOutput {
                         if flags.is_empty() {
                             ui.label("");
                         } else {
-                            ui.label(
-                                RichText::new(flags)
-                                    .size(10.5)
-                                    .color(Color32::from_rgb(219, 158, 0)),
-                            );
+                            ui.label(RichText::new(flags).size(10.5).color(WARN_AMBER));
                         }
                         ui.end_row();
                         if clicked {

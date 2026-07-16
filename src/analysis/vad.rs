@@ -217,15 +217,7 @@ impl SpeechTrack {
                     let silence_ms =
                         end_ns.saturating_sub(self.last_speech_end_ns) as f64 / 1e6;
                     if silence_ms >= SPEECH_HANGOVER_MS {
-                        let dur_ms =
-                            self.last_speech_end_ns.saturating_sub(open_ns) as f64 / 1e6;
-                        if dur_ms >= MIN_SPEECH_MS {
-                            out.push(VadEvent::Close {
-                                t_ns: self.last_speech_end_ns,
-                            });
-                        } else {
-                            out.push(VadEvent::Cancel);
-                        }
+                        out.push(self.close_or_cancel(open_ns));
                         self.open_ns = None;
                     }
                 }
@@ -235,14 +227,19 @@ impl SpeechTrack {
 
     pub fn finalize(&mut self, out: &mut Vec<VadEvent>) {
         if let Some(open_ns) = self.open_ns.take() {
-            let dur_ms = self.last_speech_end_ns.saturating_sub(open_ns) as f64 / 1e6;
-            if dur_ms >= MIN_SPEECH_MS {
-                out.push(VadEvent::Close {
-                    t_ns: self.last_speech_end_ns,
-                });
-            } else {
-                out.push(VadEvent::Cancel);
+            out.push(self.close_or_cancel(open_ns));
+        }
+    }
+
+    /// Close the region if it met MIN_SPEECH_MS, otherwise cancel it as a blip.
+    fn close_or_cancel(&self, open_ns: u64) -> VadEvent {
+        let dur_ms = self.last_speech_end_ns.saturating_sub(open_ns) as f64 / 1e6;
+        if dur_ms >= MIN_SPEECH_MS {
+            VadEvent::Close {
+                t_ns: self.last_speech_end_ns,
             }
+        } else {
+            VadEvent::Cancel
         }
     }
 }

@@ -6,6 +6,12 @@ pub mod timeline;
 use crate::audio::LANE_MIC;
 use egui::Color32;
 
+/// Shared status/grading colors: good, borderline, bad. Used for latency
+/// grading, meters, and error text so the whole UI speaks one language.
+pub const OK_GREEN: Color32 = Color32::from_rgb(56, 166, 87);
+pub const WARN_AMBER: Color32 = Color32::from_rgb(219, 158, 0);
+pub const ERR_RED: Color32 = Color32::from_rgb(214, 72, 61);
+
 /// Timeline viewport: what time range is on screen.
 pub struct ViewState {
     pub view_start_ms: f64,
@@ -156,11 +162,11 @@ pub fn interruption_colors(dark: bool) -> (Color32, Color32) {
 
 pub fn latency_color(latency_ms: f64) -> Color32 {
     if latency_ms < 500.0 {
-        Color32::from_rgb(56, 166, 87)
+        OK_GREEN
     } else if latency_ms < 1000.0 {
-        Color32::from_rgb(219, 158, 0)
+        WARN_AMBER
     } else {
-        Color32::from_rgb(214, 72, 61)
+        ERR_RED
     }
 }
 

@@ -50,7 +50,7 @@ pub fn next_gen() -> u64 {
 }
 
 /// Reported latency info for a physical device (macOS only; None elsewhere).
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct DeviceInfo {
     pub name: String,
     pub device_latency_ms: f64,

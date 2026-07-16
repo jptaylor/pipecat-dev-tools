@@ -2,7 +2,7 @@
 //! device latency info. RTVI fields show N/A when no bridge client has sent
 //! events — the tool is fully functional without them.
 
-use super::{latency_color, lerp_color};
+use super::{latency_color, lerp_color, ERR_RED, WARN_AMBER};
 use crate::analysis::stats;
 use crate::audio::{DeviceInfo, LANE_MIC, LANE_SYS};
 use crate::session::{Phase, Shared};
@@ -85,7 +85,7 @@ pub fn show(ui: &mut egui::Ui, sh: &Shared, now_ns: u64, turn_pulse: f32) {
         ui.label(RichText::new("disabled").weak());
     } else if !sh.bridge.running {
         ui.colored_label(
-            Color32::from_rgb(214, 72, 61),
+            ERR_RED,
             sh.bridge.error.as_deref().unwrap_or("not running"),
         );
     } else {
@@ -151,7 +151,7 @@ pub fn show(ui: &mut egui::Ui, sh: &Shared, now_ns: u64, turn_pulse: f32) {
     if bt {
         ui.add_space(4.0);
         ui.colored_label(
-            Color32::from_rgb(219, 158, 0),
+            WARN_AMBER,
             "⚠ Bluetooth audio device: adds latency the framework never sees. \
              Prefer wired devices for benchmarking.",
         );

@@ -1,6 +1,6 @@
 //! Top control bar: devices, start/stop, thresholds with live meters, toggles.
 
-use super::ViewState;
+use super::{ViewState, ERR_RED, OK_GREEN, WARN_AMBER};
 use crate::audio::{LANE_MIC, LANE_SYS};
 use crate::config::Config;
 use crate::session::{Phase, Shared, SysStatus};
@@ -80,9 +80,9 @@ pub fn show(
                 });
         } else {
             let (dot, hover) = match &sh.sys_status {
-                SysStatus::Ok => (Color32::from_rgb(56, 166, 87), "System audio tap running".to_string()),
+                SysStatus::Ok => (OK_GREEN, "System audio tap running".to_string()),
                 SysStatus::Unavailable(e) => (Color32::from_gray(140), e.clone()),
-                SysStatus::Error(e) => (Color32::from_rgb(214, 72, 61), e.clone()),
+                SysStatus::Error(e) => (ERR_RED, e.clone()),
             };
             let (r, resp) = ui.allocate_exact_size(vec2(10.0, 10.0), Sense::hover());
             ui.painter().circle_filled(r.center(), 4.0, dot);
@@ -120,7 +120,7 @@ pub fn show(
                 (
                     format!("bridge :{} · {}", sh.bridge.port, sh.bridge.clients),
                     if sh.bridge.clients > 0 {
-                        Color32::from_rgb(56, 166, 87)
+                        OK_GREEN
                     } else {
                         Color32::from_gray(140)
                     },
@@ -131,7 +131,7 @@ pub fn show(
                         .error
                         .clone()
                         .unwrap_or_else(|| "bridge error".into()),
-                    Color32::from_rgb(214, 72, 61),
+                    ERR_RED,
                 )
             };
             ui.label(RichText::new(chip).color(color).size(11.0));
@@ -204,7 +204,7 @@ pub fn show(
         );
         if let Some(err) = &sh.vad_error {
             vad_resp.on_hover_text(format!("VAD unavailable: {err}"));
-            ui.colored_label(Color32::from_rgb(219, 158, 0), "⚠")
+            ui.colored_label(WARN_AMBER, "⚠")
                 .on_hover_text(format!("VAD unavailable: {err}"));
         }
 
@@ -321,11 +321,11 @@ fn meter(ui: &mut egui::Ui, level_db: f32, threshold_db: f32, width: f32) {
     let v = norm(level_db);
     if v > 0.001 {
         let color = if level_db > -12.0 {
-            Color32::from_rgb(214, 72, 61)
+            ERR_RED
         } else if level_db > -30.0 {
-            Color32::from_rgb(219, 158, 0)
+            WARN_AMBER
         } else {
-            Color32::from_rgb(56, 166, 87)
+            OK_GREEN
         };
         let fill = Rect::from_min_size(rect.min, vec2(rect.width() * v, rect.height()));
         painter.rect_filled(fill, 3.0, color.gamma_multiply(0.85));

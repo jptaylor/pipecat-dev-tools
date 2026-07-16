@@ -77,7 +77,7 @@ impl LaneBins {
         // Cascade completed groups into coarser levels.
         for level in 1..NUM_LEVELS {
             let finer_len = self.levels[level - 1].len();
-            if finer_len % LOD_FACTOR != 0 || finer_len == 0 {
+            if !finer_len.is_multiple_of(LOD_FACTOR) || finer_len == 0 {
                 break;
             }
             let start = finer_len - LOD_FACTOR;

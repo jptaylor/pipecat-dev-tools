@@ -12,11 +12,17 @@ use std::time::Duration;
 
 pub struct BridgeHandle {
     stop: Arc<AtomicBool>,
+    join: Option<std::thread::JoinHandle<()>>,
 }
 
 impl Drop for BridgeHandle {
     fn drop(&mut self) {
         self.stop.store(true, Ordering::Relaxed);
+        // Join the accept thread (it polls `stop` every ≤250 ms) so the
+        // listener socket is closed before a restart rebinds the port.
+        if let Some(j) = self.join.take() {
+            let _ = j.join();
+        }
     }
 }
 
@@ -38,14 +44,17 @@ pub fn start(port: u16, shared: SharedState) -> Result<BridgeHandle, String> {
 
     let stop2 = stop.clone();
     let shared2 = shared.clone();
-    std::thread::Builder::new()
+    let join = std::thread::Builder::new()
         .name("bridge-accept".into())
         .spawn(move || {
             accept_loop(listener, shared2, stop2);
         })
         .map_err(|e| format!("spawn bridge thread: {e}"))?;
 
-    Ok(BridgeHandle { stop })
+    Ok(BridgeHandle {
+        stop,
+        join: Some(join),
+    })
 }
 
 fn accept_loop(listener: TcpListener, shared: SharedState, stop: Arc<AtomicBool>) {
@@ -116,6 +125,41 @@ fn handle_conn(stream: TcpStream, shared: SharedState, stop: Arc<AtomicBool>) {
     sh.bridge.clients = sh.bridge.clients.saturating_sub(1);
 }
 
+fn handle_text(
+    text: &str,
+    recv_ns: u64,
+    shared: &SharedState,
+    ws: &mut tungstenite::WebSocket<TcpStream>,
+) {
+    match parse(text) {
+        Parsed::Event { name, source, meta } => {
+            let mut sh = shared.lock();
+            sh.bridge.last_event = Some((name.clone(), recv_ns));
+            if sh.phase == Phase::Running {
+                sh.events.push(BridgeEvent {
+                    t_ns: recv_ns,
+                    name,
+                    source,
+                    meta,
+                });
+            }
+        }
+        Parsed::Ping => {
+            let pong = format!(
+                r#"{{"type":"pong","t_recv_ms":{:.3}}}"#,
+                recv_ns as f64 / 1e6
+            );
+            let _ = ws.send(tungstenite::Message::Text(pong));
+        }
+        Parsed::Hello => {
+            let _ = ws.send(tungstenite::Message::Text(
+                r#"{"type":"hello","app":"pipecat-audio-metrics","v":1}"#.into(),
+            ));
+        }
+        Parsed::Ignored => {}
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -153,40 +197,5 @@ mod tests {
         assert_eq!(sh.events[0].name, "user_stopped_speaking");
         assert_eq!(sh.events[0].source, "test");
         assert!(sh.bridge.last_event.is_some());
-    }
-}
-
-fn handle_text(
-    text: &str,
-    recv_ns: u64,
-    shared: &SharedState,
-    ws: &mut tungstenite::WebSocket<TcpStream>,
-) {
-    match parse(text) {
-        Parsed::Event { name, source, meta } => {
-            let mut sh = shared.lock();
-            sh.bridge.last_event = Some((name.clone(), recv_ns));
-            if sh.phase == Phase::Running {
-                sh.events.push(BridgeEvent {
-                    t_ns: recv_ns,
-                    name,
-                    source,
-                    meta,
-                });
-            }
-        }
-        Parsed::Ping => {
-            let pong = format!(
-                r#"{{"type":"pong","t_recv_ms":{:.3}}}"#,
-                recv_ns as f64 / 1e6
-            );
-            let _ = ws.send(tungstenite::Message::Text(pong));
-        }
-        Parsed::Hello => {
-            let _ = ws.send(tungstenite::Message::Text(
-                r#"{"type":"hello","app":"pipecat-audio-metrics","v":1}"#.into(),
-            ));
-        }
-        Parsed::Ignored => {}
     }
 }

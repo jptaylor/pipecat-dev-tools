@@ -69,14 +69,10 @@ pub fn now_ns() -> u64 {
 }
 
 /// Convert a Core Audio `mHostTime` (mach ticks) to ns-since-app-launch.
+/// Only meaningful (and only called) on macOS, from the system-tap callback.
 #[cfg(target_os = "macos")]
 pub fn host_time_to_ns(host_time: u64) -> u64 {
     let (numer, denom) = timebase();
     let ns = (host_time as u128 * numer as u128 / denom as u128) as u64;
     ns.saturating_sub(origin())
-}
-
-#[cfg(not(target_os = "macos"))]
-pub fn host_time_to_ns(host_time: u64) -> u64 {
-    host_time.saturating_sub(origin())
 }
