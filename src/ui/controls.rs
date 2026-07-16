@@ -349,7 +349,7 @@ fn meter(ui: &mut egui::Ui, level_db: f32, threshold_db: f32, width: f32) {
     let tx = rect.left() + rect.width() * norm(threshold_db);
     painter.line_segment(
         [pos2(tx, rect.top()), pos2(tx, rect.bottom())],
-        Stroke::new(1.5, if dark { Color32::WHITE } else { Color32::BLACK }),
+        Stroke::new(1.5_f32, if dark { Color32::WHITE } else { Color32::BLACK }),
     );
     if resp.hovered() {
         painter.text(

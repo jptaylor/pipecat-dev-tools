@@ -29,11 +29,14 @@ fn main() -> eframe::Result<()> {
     }
 
     let cfg = Config::load();
+    let icon = eframe::icon_data::from_png_bytes(include_bytes!("../assets/appicon-rounded-512.png"))
+        .expect("appicon-rounded-512.png is a valid PNG");
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([1360.0, 860.0])
             .with_min_inner_size([980.0, 620.0])
-            .with_title("Pipecat Audio Metrics"),
+            .with_title("Pipecat Audio Metrics")
+            .with_icon(icon),
         ..Default::default()
     };
     eframe::run_native(

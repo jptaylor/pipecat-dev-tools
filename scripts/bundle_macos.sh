@@ -35,6 +35,7 @@ mkdir -p "$APP_DIR/Contents/MacOS" "$APP_DIR/Contents/Resources"
 
 cp "target/release/$BIN_NAME" "$APP_DIR/Contents/MacOS/$BIN_NAME"
 cp macos/Info.plist "$APP_DIR/Contents/Info.plist"
+cp macos/AppIcon.icns "$APP_DIR/Contents/Resources/AppIcon.icns"
 
 echo "Ad-hoc signing..."
 codesign --force --deep --sign - "$APP_DIR"

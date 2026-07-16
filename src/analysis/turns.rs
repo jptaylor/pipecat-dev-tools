@@ -838,6 +838,31 @@ mod tests {
     }
 
     #[test]
+    fn event_timings_honor_category_filter() {
+        let mut sh = Shared::new(crate::config::Config::default());
+        for (t, name) in [(1000, "user_started_speaking"), (1100, "llm_metrics")] {
+            sh.events.push(BridgeEvent {
+                t_ns: t * MS,
+                name: name.into(),
+                source: "test".into(),
+                meta: serde_json::Value::Null,
+            });
+        }
+        // Metrics are off by default: only the user event group survives.
+        let groups = event_timings(&sh);
+        assert_eq!(groups.len(), 1);
+        assert_eq!(groups[0].0, "user_started_speaking");
+        // Turning the User category off empties the table.
+        sh.cfg.event_filter.user = false;
+        assert!(event_timings(&sh).is_empty());
+        // Turning Metrics on brings the metrics group in.
+        sh.cfg.event_filter.metrics = true;
+        let groups = event_timings(&sh);
+        assert_eq!(groups.len(), 1);
+        assert_eq!(groups[0].0, "llm_metrics");
+    }
+
+    #[test]
     fn cancelled_bot_blip_retracts_turn() {
         let mut tr = TurnTracker::new();
         let mut turns = Vec::new();

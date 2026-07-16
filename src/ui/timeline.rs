@@ -101,7 +101,7 @@ pub fn show(ui: &mut egui::Ui, sh: &Shared, view: &mut ViewState, effects: &Effe
         while x < lane_rect.right() {
             painter.line_segment(
                 [pos2(x, cy), pos2(x + 3.0, cy)],
-                Stroke::new(1.0, weak),
+                Stroke::new(1.0_f32, weak),
             );
             x += 8.0;
         }
@@ -232,12 +232,12 @@ pub fn show(ui: &mut egui::Ui, sh: &Shared, view: &mut ViewState, effects: &Effe
         if x2 - x1 >= 14.0 {
             painter.line_segment(
                 [pos2(x1 + 1.0, gap_y), pos2(x2 - 1.0, gap_y)],
-                Stroke::new(1.2, color),
+                Stroke::new(1.2_f32, color),
             );
             for x in [x1 + 1.0, x2 - 1.0] {
                 painter.line_segment(
                     [pos2(x, gap_y - 4.0), pos2(x, gap_y + 4.0)],
-                    Stroke::new(1.2, color),
+                    Stroke::new(1.2_f32, color),
                 );
             }
         }
@@ -277,7 +277,7 @@ pub fn show(ui: &mut egui::Ui, sh: &Shared, view: &mut ViewState, effects: &Effe
         painter.rect_stroke(
             block,
             3.0,
-            Stroke::new(1.0, itr_accent.gamma_multiply(0.8)),
+            Stroke::new(1.0_f32, itr_accent.gamma_multiply(0.8)),
             egui::StrokeKind::Inside,
         );
         if let Some(stop) = itr.stop_ms {
@@ -347,7 +347,7 @@ pub fn show(ui: &mut egui::Ui, sh: &Shared, view: &mut ViewState, effects: &Effe
             painter.rect_stroke(
                 chip,
                 3.0,
-                Stroke::new(1.0, Color32::from_gray(if dark { 80 } else { 200 })),
+                Stroke::new(1.0_f32, Color32::from_gray(if dark { 80 } else { 200 })),
                 egui::StrokeKind::Inside,
             );
             let text_pos = chip.center() - galley.size() / 2.0;
@@ -378,6 +378,12 @@ pub fn show(ui: &mut egui::Ui, sh: &Shared, view: &mut ViewState, effects: &Effe
     if let (Some((_, idx)), Some(p)) = (hover_event, pointer) {
         let e = &sh.events[idx];
         let e_ns = sh.event_ns(e);
+        let hx = x_of(sh.rel_ms(e_ns));
+        let hcolor = category_color(categorize(&e.name)).gamma_multiply(0.9);
+        painter.line_segment(
+            [pos2(hx, lanes_top), pos2(hx, rect.bottom() - 4.0)],
+            Stroke::new(1.0_f32, hcolor),
+        );
         let mut lines = vec![
             e.name.clone(),
             format!("t = {}", fmt_clock(sh.rel_ms(e_ns), true)),
@@ -396,12 +402,12 @@ pub fn show(ui: &mut egui::Ui, sh: &Shared, view: &mut ViewState, effects: &Effe
             if x2 - x1 >= 2.0 {
                 painter.line_segment(
                     [pos2(x1 + 1.0, event_gap_y), pos2(x2 - 1.0, event_gap_y)],
-                    Stroke::new(1.2, color),
+                    Stroke::new(1.2_f32, color),
                 );
                 for x in [x1 + 1.0, x2 - 1.0] {
                     painter.line_segment(
                         [pos2(x, event_gap_y - 4.0), pos2(x, event_gap_y + 4.0)],
-                        Stroke::new(1.2, color),
+                        Stroke::new(1.2_f32, color),
                     );
                 }
                 painter.text(
@@ -457,7 +463,7 @@ pub fn show(ui: &mut egui::Ui, sh: &Shared, view: &mut ViewState, effects: &Effe
             };
             painter.line_segment(
                 [pos2(x, lanes_top), pos2(x, rect.bottom() - 4.0)],
-                Stroke::new(1.0, accent.gamma_multiply(0.7)),
+                Stroke::new(1.0_f32, accent.gamma_multiply(0.7)),
             );
         }
     }
@@ -560,7 +566,7 @@ fn draw_ruler(
             let x = rect.left() + ((t - view_start) * ppm as f64) as f32;
             let is_major = (t / step - (t / step).round()).abs() < 1e-6;
             let h = if is_major { 7.0 } else { 4.0 };
-            painter.line_segment([pos2(x, y1 - h), pos2(x, y1)], Stroke::new(1.0, tick_color));
+            painter.line_segment([pos2(x, y1 - h), pos2(x, y1)], Stroke::new(1.0_f32, tick_color));
             if is_major {
                 painter.text(
                     pos2(x + 3.0, rect.top() + 1.0),
@@ -575,7 +581,7 @@ fn draw_ruler(
     }
     painter.line_segment(
         [pos2(rect.left(), y1), pos2(rect.right(), y1)],
-        Stroke::new(1.0, tick_color),
+        Stroke::new(1.0_f32, tick_color),
     );
 }
 
@@ -621,7 +627,7 @@ fn draw_tooltip(painter: &egui::Painter, at: egui::Pos2, bounds: Rect, dark: boo
     painter.rect_stroke(
         tooltip_rect,
         4.0,
-        Stroke::new(1.0, Color32::from_gray(if dark { 80 } else { 200 })),
+        Stroke::new(1.0_f32, Color32::from_gray(if dark { 80 } else { 200 })),
         egui::StrokeKind::Inside,
     );
     for (i, line) in lines.iter().enumerate() {

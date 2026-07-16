@@ -1,5 +1,19 @@
 # assets
 
+## appicon.png / appicon-rounded-512.png
+
+`appicon.png` is the Pipecat logo (source of truth). `appicon-rounded-512.png`
+and `macos/AppIcon.icns` are generated from it — the logo on a macOS-style
+rounded square. The 512 PNG is embedded in the binary as the runtime
+window/Dock icon (`src/main.rs`); the `.icns` is copied into the `.app` bundle
+by `scripts/bundle_macos.sh`.
+
+Regenerate after changing `appicon.png`:
+
+```bash
+python3 scripts/make_icons.py  # requires Pillow; iconutil for the .icns
+```
+
 ## silero_vad_openvino_16k_named.onnx
 
 [Silero VAD](https://github.com/snakers4/silero-vad) (MIT license), the

@@ -263,7 +263,7 @@ fn draw_histogram(ui: &mut egui::Ui, values: &[f64]) {
         painter.rect_stroke(
             bar,
             2.0,
-            Stroke::new(1.0, if dark { Color32::WHITE } else { Color32::BLACK }),
+            Stroke::new(1.0_f32, if dark { Color32::WHITE } else { Color32::BLACK }),
             egui::StrokeKind::Outside,
         );
         painter.text(

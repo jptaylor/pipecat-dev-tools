@@ -29,6 +29,19 @@
 #include "system_tap.h"
 #include <mach/mach_time.h>
 
+// The @available checks below compile to ___isPlatformVersionAtLeast from
+// clang's compiler-rt, but rustc links with -nodefaultlibs so compiler-rt is
+// not reliably on the link line. Provide a weak fallback; the real
+// compiler-rt implementation wins whenever it is present.
+__attribute__((weak)) int32_t __isPlatformVersionAtLeast(uint32_t platform, uint32_t major,
+                                                         uint32_t minor, uint32_t subminor) {
+    (void)platform; // only ever built for macOS
+    NSOperatingSystemVersion v = NSProcessInfo.processInfo.operatingSystemVersion;
+    if ((uint32_t)v.majorVersion != major) return (uint32_t)v.majorVersion > major;
+    if ((uint32_t)v.minorVersion != minor) return (uint32_t)v.minorVersion > minor;
+    return (uint32_t)v.patchVersion >= subminor;
+}
+
 static sysaudio_data_cb g_data_cb = NULL;
 static sysaudio_event_cb g_event_cb = NULL;
 static void *g_ctx = NULL;

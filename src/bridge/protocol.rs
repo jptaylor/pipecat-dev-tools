@@ -127,7 +127,12 @@ impl EventCategory {
 }
 
 pub fn categorize(name: &str) -> EventCategory {
-    if name.starts_with("user_") {
+    // Metrics first: names like `llm_metrics` / `tts_metrics` are metrics
+    // about a service, not service lifecycle events — they must follow the
+    // Metrics filter toggle.
+    if name.contains("metric") {
+        EventCategory::Metrics
+    } else if name.starts_with("user_") {
         EventCategory::User
     } else if name.contains("tts") {
         EventCategory::Tts
@@ -137,8 +142,6 @@ pub fn categorize(name: &str) -> EventCategory {
         EventCategory::Stt
     } else if name.starts_with("bot_") {
         EventCategory::Bot
-    } else if name.contains("metric") {
-        EventCategory::Metrics
     } else {
         EventCategory::Other
     }
@@ -163,6 +166,15 @@ mod tests {
             Parsed::Event { name, .. } => assert_eq!(name, "user_stopped_speaking"),
             _ => panic!("expected event"),
         }
+    }
+
+    #[test]
+    fn metrics_win_over_service_substrings() {
+        assert_eq!(categorize("metrics"), EventCategory::Metrics);
+        assert_eq!(categorize("llm_metrics"), EventCategory::Metrics);
+        assert_eq!(categorize("tts_metrics"), EventCategory::Metrics);
+        assert_eq!(categorize("bot_llm_started"), EventCategory::Llm);
+        assert_eq!(categorize("user_stopped_speaking"), EventCategory::User);
     }
 
     #[test]
